@@ -1,0 +1,1667 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates an Transit Gateway with a Security VPC and two spoke VPCs VPC0 and VPC1
+Parameters:
+  WebInstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t1.micro
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - m1.large
+      - m3.xlarge
+      - c4.2xlarge
+    ConstraintDescription: must be a valid EC2 instance type.
+  KeyName:
+    Description: Amazon EC2 Key Pair
+    Type: AWS::EC2::KeyPair::KeyName
+  SecurityVPCName:
+    Description: Name of the newly created Security VPC
+    Type: String
+    MinLength: '6'
+    MaxLength: '75'
+    Default: panwSecurityVPC
+  SecurityVPCCIDR:
+    Type: String
+    Default: 192.168.0.0/16
+    Description: Enter the VPC CIDR that you want to use
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid CIDR range of the form x.x.x.x/x.
+  VpcAzs:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: Select 2 AZs
+  NatInstanceType:
+    Description: Instance type to use for NAT
+    Type: String
+    Default: t2.micro  
+
+  SSHLocation:
+    Description: Restrict SSH & HTTPS access to the Web Servers (by default can be
+      accessed from anywhere)
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: '0.0.0.0/0'
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid CIDR range of the form x.x.x.x/x.
+  MgmtSubnetIpBlocks:
+    Description: Management subnet comma-delimited list of CIDR blocks
+    Type: CommaDelimitedList
+    Default: 192.168.0.0/24, 192.168.10.0/24
+  UntrustSubnetIpBlocks:
+    Description: Untrust subnet comma-delimited list of CIDR blocks
+    Type: CommaDelimitedList
+    Default: 192.168.1.0/24, 192.168.11.0/24
+  TrustSubnetIpBlocks:
+    Description: Trust subnet comma-delimited list of CIDR blocks
+    Type: CommaDelimitedList
+    Default: 192.168.2.0/24, 192.168.12.0/24
+  DMZSubnetIpBlocks:
+    Description: AWS NAT Gateway Comma-delimited list of CIDR blocks
+    Type: CommaDelimitedList
+    Default: 192.168.101.0/24, 192.168.111.0/24
+  FWInstanceType:
+    Type: String
+    Default: m4.xlarge
+    AllowedValues:
+      - c3.xlarge
+      - c3.2xlarge
+      - c3.4xlarge
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+    Description: Enter the instance type and size for the VM-Series firewall
+  FWLicenseType:
+    Type: String
+    Default: Bundle1
+    AllowedValues:
+      - Bundle1
+      - Bundle2
+      - BYOL
+    Description: Enter the license type for the Firewall
+  S3BucketName:
+    Type: String
+    Description: Enter the name S3 Bucket Name containing the Bootstrap files
+    MinLength: '3'
+    MaxLength: '120'
+    Default: 'jrh-tgw-boot'
+
+  LambdaFunctionsBucketName:
+    Description: Existing S3 bucket name which is having the Lambda funtions zip
+    Type: String
+    Default: jrh-tgw-boot
+  LambdaZipFile:
+    Description: Lambda code zip filename which is stored in above mentioned Required
+      parameters LambdaFunctionsBucketName
+    Type: String
+    Default: lambda.zip
+Mappings:
+  AWSNATAMI:
+    us-east-1:
+      AMI: ami-b419e7ce
+    us-west-2:
+      AMI: ami-0b707a72
+    us-east-2:
+      AMI: ami-021e3167
+    us-west-1:
+      AMI: ami-004b0f60
+    ca-central-1:
+      AMI: ami-12d36a76
+    eu-west-1:
+      AMI: ami-076d5d61
+    eu-west-2:
+      AMI: ami-0a4c5a6e
+    eu-central-1:
+      AMI: ami-0469bb6b
+    ap-southeast-1:
+      AMI: ami-047a3667
+    ap-southeast-2:
+      AMI: ami-17809174
+    ap-northeast-1:
+      AMI: ami-10dfc877
+    ap-northeast-2:
+      AMI: ami-1a1bc474
+    ap-south-1:
+      AMI: ami-6dc38202
+    sa-east-1:
+      AMI: ami-54e59738
+  AWSRegionToAMI:
+    us-east-1:
+      AMIID: ami-eca289fb
+    us-east-2:
+      AMIID: ami-446f3521
+    us-west-1:
+      AMIID: ami-9fadf8ff
+    us-west-2:
+      AMIID: ami-7abc111a
+    eu-west-1:
+      AMIID: ami-a1491ad2
+    eu-central-1:
+      AMIID: ami-54f5303b
+    ap-northeast-1:
+      AMIID: ami-9cd57ffd
+    ap-southeast-1:
+      AMIID: ami-a900a3ca
+    ap-southeast-2:
+      AMIID: ami-5781be34
+  RegionMap:
+    us-east-1:
+      Subnet0AZ: us-east-1a
+      Subnet1AZ: us-east-1b
+      Realm: iad
+    us-east-2:
+      Subnet0AZ: us-east-2a
+      Subnet1AZ: us-east-2b
+      Realm: cmh
+    us-west-2:
+      Subnet0AZ: us-west-2a
+      Subnet1AZ: us-west-2b
+      Realm: pdx
+    us-west-1:
+      Subnet0AZ: us-west-1a
+      Subnet1AZ: us-west-1b
+      Realm: sfo
+    ca-central-1:
+      Subnet0AZ: ca-central-1a
+      Subnet1AZ: ca-central-1b
+      Realm: yul
+    eu-west-1:
+      Subnet0AZ: eu-west-1a
+      Subnet1AZ: eu-west-1b
+      Realm: dub
+    eu-west-3:
+      Subnet0AZ: eu-west-3a
+      Subnet1AZ: eu-west-3b
+      Realm: cdg
+    eu-west-2:
+      Subnet0AZ: eu-west-2a
+      Subnet1AZ: eu-west-2b
+      Realm: lhr
+    eu-central-1:
+      Subnet0AZ: eu-central-1a
+      Subnet1AZ: eu-central-1b
+      Realm: fra
+    sa-east-1:
+      Subnet0AZ: sa-east-1c
+      Subnet1AZ: sa-east-1a
+      Realm: gru
+    ap-southeast-1:
+      Subnet0AZ: ap-southeast-1a
+      Subnet1AZ: ap-southeast-1b
+      Realm: sin
+    ap-southeast-2:
+      Subnet0AZ: ap-southeast-2a
+      Subnet1AZ: ap-southeast-2b
+      Realm: syd
+    ap-northeast-1:
+      Subnet0AZ: ap-northeast-1a
+      Subnet1AZ: ap-northeast-1b
+      Realm: nrt
+    ap-northeast-2:
+      Subnet0AZ: ap-northeast-2a
+      Subnet1AZ: ap-northeast-2b
+      Realm: icn
+    ap-south-1:
+      Subnet0AZ: ap-south-1a
+      Subnet1AZ: ap-south-1b
+      Realm: bom
+  UbuntuRegionMap:
+    us-west-2:
+      AMI: ami-efd0428f
+    ap-northeast-1:
+      AMI: ami-afb09dc8
+    us-west-1:
+      AMI: ami-2afbde4a
+    ap-northeast-2:
+      AMI: ami-66e33108
+    ap-southeast-1:
+      AMI: ami-8fcc75ec
+    ap-southeast-2:
+      AMI: ami-96666ff5
+    eu-central-1:
+      AMI: ami-060cde69
+    eu-west-1:
+      AMI: ami-bbc542c8
+    eu-west-2:
+      AMI: ami-f1d7c395
+    sa-east-1:
+      AMI: ami-4090f22c
+    us-east-1:
+      AMI: ami-80861296
+    us-east-2:
+      AMI: ami-618fab04
+    ca-central-1:
+      AMI: ami-b3d965d7
+    ap-south-1:
+      AMI: ami-c2ee9dad
+  AWSRegionAMIEC2:
+    us-east-1:
+      Xenial: ami-b46295c9
+    us-east-2:
+      Xenial: ami-f6cef993
+    us-west-1:
+      Xenial: ami-c16862a1
+    us-west-2:
+      Xenial: ami-1c1d9664
+    ca-central-1:
+      Xenial: ami-919b1cf5
+    eu-central-1:
+      Xenial: ami-6283ef0d
+    eu-west-1:
+      Xenial: ami-70054309
+    eu-west-2:
+      Xenial: ami-be4aaed9
+    eu-west-3:
+      Xenial: ami-5563d528
+    ap-northeast-1:
+      Xenial: ami-64612102
+    ap-northeast-2:
+      Xenial: ami-e546eb8b
+    ap-southeast-1:
+      Xenial: ami-8f4f05f3
+    ap-southeast-2:
+      Xenial: ami-ed77b18f
+    sa-east-1:
+      Xenial: ami-4a733826
+  AWSRegionArch2AMI:
+    us-east-1:
+      Bundle1: ami-ce01c0b3
+      Bundle2: ami-bffd3cc2
+      BYOL: ami-a2fa3bdf
+    us-east-2:
+      Bundle1: ami-10f3c575
+      Bundle2: ami-9ef3c5fb
+      BYOL: ami-11e1d774
+    us-west-1:
+      Bundle1: ami-235b4f43
+      Bundle2: ami-854551e5
+      BYOL: ami-a95b4fc9
+    us-west-2:
+      Bundle1: ami-8a22b3f2
+      Bundle2: ami-9a29b8e2
+      BYOL: ami-d424b5ac
+    ca-central-1:
+      Bundle1: ami-dd0582b9
+      Bundle2: ami-57048333
+      BYOL: ami-64038400
+    eu-central-1:
+      Bundle1: ami-1bbdd574
+      Bundle2: ami-1ebdd571
+      BYOL: ami-55bfd73a
+    eu-west-1:
+      Bundle1: ami-edb0fe94
+      Bundle2: ami-1fb1ff66
+      BYOL: ami-62b5fb1b
+    eu-west-2:
+      Bundle1: ami-f46a8d93
+      Bundle2: ami-c4688fa3
+      BYOL: ami-876a8de0
+    ap-southeast-1:
+      Bundle1: ami-55bced29
+      Bundle2: ami-36bdec4a
+      BYOL: ami-27baeb5b
+    ap-southeast-2:
+      Bundle1: ami-aed112cc
+      Bundle2: ami-add013cf
+      BYOL: ami-00d61562
+    ap-northeast-2:
+      Bundle1: ami-4eb81420
+      Bundle2: ami-a8bf13c6
+      BYOL: ami-49bd1127
+    ap-northeast-1:
+      Bundle1: ami-39662d5f
+      Bundle2: ami-75652e13
+      BYOL: ami-57662d31
+    ap-south-1:
+      Bundle1: ami-d385dcbc
+      Bundle2: ami-ee80d981
+      BYOL: ami-e780d988
+    sa-east-1:
+      Bundle1: ami-9e0154f2
+      Bundle2: ami-d80653b4
+      BYOL: ami-9c0154f0
+  Constants:
+    S3URL:
+      URL1: https://s3.amazonaws.com
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      SecurityVPCName:
+        default: VPC Name
+      SecurityVPCCIDR:
+        default: CIDR Block for the VPC
+      MgmtSubnetIpBlocks:
+        default: Management Subnet CIDR Block
+      UntrustSubnetIpBlocks:
+        default: Untrust Subnet CIDR Block
+      TrustSubnetIpBlocks:
+        default: Trust Subnet CIDR Block
+      DMZSubnetIpBlocks:
+        default: NAT Gateway Subnet CIDR Block
+      WebInstanceType:
+        default: Web Server Instance Size
+
+Resources:
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties:
+      Description: "Security TransitGateway"
+      AutoAcceptSharedAttachments: "disable"
+      DefaultRouteTableAssociation: "enable"
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - TransitGateway
+  
+  sgWideOpen:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Wide open security group
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      VpcId: !Ref 'SecurityVPC'
+  VPC0sgWideOpen:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Wide open security group
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      VpcId: !Ref 'VPC0'
+  VPC1sgWideOpen:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Wide open security group
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      VpcId: !Ref 'VPC1'
+  sgJumpbox:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for Jumpbox
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: tcp
+          FromPort: '3389'
+          ToPort: '3389'
+          CidrIp: '0.0.0.0/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      VpcId: !Ref 'SecurityVPC'
+  
+  SecurityVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref 'SecurityVPCCIDR'
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - SecurityVPC
+  VPC0:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0
+  VPC1:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC1
+  VPC0HostSubnetAz0:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn : VPC0
+    Properties:
+      VpcId: !Ref VPC0
+      CidrBlock: 10.1.0.0/24
+      AvailabilityZone: !FindInMap
+      - RegionMap
+      - !Ref 'AWS::Region'
+      - Subnet0AZ
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0HostSubnetAz0
+  VPC0HostSubnetAz1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn : VPC0
+    Properties:
+      VpcId: !Ref VPC0
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !FindInMap
+      - RegionMap
+      - !Ref 'AWS::Region'
+      - Subnet1AZ
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0HostSubnetAz1
+  VPC1HostSubnetAz0:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC1
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.2.0.0/24
+      AvailabilityZone: !FindInMap
+      - RegionMap
+      - !Ref 'AWS::Region'
+      - Subnet0AZ
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0HostSubnetAz0
+  VPC1HostSubnetAz1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC1
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.2.1.0/24
+      AvailabilityZone: !FindInMap
+      - RegionMap
+      - !Ref 'AWS::Region'
+      - Subnet1AZ
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC1HostSubnetAz1
+
+  SecurityVPCAttachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+    - TRUSTSubnet1
+    - TRUSTSubnet2
+    - TransitGateway
+    Properties:
+      VpcId: !Ref SecurityVPC
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref TRUSTSubnet1
+      - !Ref TRUSTSubnet2
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - SecurityVPCAttachment
+  VPC0Attachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+      - VPC0HostSubnetAz0
+      - VPC0
+      - TransitGateway
+    Properties:
+      VpcId: !Ref VPC0
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref VPC0HostSubnetAz0
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0Attachment
+  VPC1Attachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+      - VPC1HostSubnetAz1
+      - VPC1
+      - TransitGateway
+    Properties:
+      VpcId: !Ref VPC1
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref VPC1HostSubnetAz1
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC1Attachment
+
+  VPC0AttachmentPropagation:      
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref VPC0Attachment
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+    DependsOn:
+      - VPC0Attachment
+      - SecurityVPCRouteTable
+  VPC1AttachmentPropagation:     
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref VPC1Attachment
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+    DependsOn:
+      - VPC0Attachment
+      - SecurityVPCRouteTable
+
+  VPC1RouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    DependsOn:
+    - TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC1RouteTable    
+  VPC0RouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    DependsOn:
+    - TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0RouteTable     
+  SecurityVPCRouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    DependsOn:
+    - TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - SecurityVPCRouteTable
+      
+
+  VPC0TgwRtAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - VPC0RouteTable
+    - VPC0Attachment
+    Properties:
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+      TransitGatewayAttachmentId: !Ref VPC0Attachment
+  VPC1TgwRtAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - VPC1RouteTable
+    - VPC1Attachment
+    Properties:
+      TransitGatewayRouteTableId: !Ref VPC1RouteTable
+      TransitGatewayAttachmentId: !Ref VPC1Attachment
+  SecurityVPCAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - SecurityVPCRouteTable
+    - SecurityVPCAttachment
+    Properties:
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+
+  VPC1DefRouteToSecurityVPC:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn:
+    - VPC1RouteTable
+    - SecurityVPCAttachment
+    Properties:
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref VPC1RouteTable
+  VPC0DefRouteToSecurityVPC:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn:
+    - VPC0RouteTable
+    - SecurityVPCAttachment
+    Properties:
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+
+  DMZSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '0'
+        - !Ref 'DMZSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - DMZSubnetAz1
+      
+    DependsOn:
+     - SecurityVPC
+  DMZSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '1'
+        - !Ref 'DMZSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - DMZSubnetAz2      
+    DependsOn:
+     - SecurityVPC
+  MGMTSubnetAz1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '0'
+        - !Ref 'MgmtSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - MGMTSubnetAz1
+      
+    DependsOn:
+     - SecurityVPC
+  MGMTSubnetAz2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '1'
+        - !Ref 'MgmtSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - MGMTSubnetAz2      
+    DependsOn:
+     - SecurityVPC
+  UNTRUSTSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '0'
+        - !Ref 'UntrustSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - UntrustSubnetAz1      
+    DependsOn:
+     - SecurityVPC
+  UNTRUSTSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '1'
+        - !Ref 'UntrustSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - UntrustSubnetAz2      
+    DependsOn:
+     - SecurityVPC
+  TRUSTSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '0'
+        - !Ref 'TrustSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - TrustSubnetAz1
+      
+    DependsOn:
+     - SecurityVPC
+  TRUSTSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      VpcId: !Ref 'SecurityVPC'
+      CidrBlock: !Select
+        - '1'
+        - !Ref 'TrustSubnetIpBlocks'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - TrustSubnetAz2
+      
+    DependsOn:
+     - SecurityVPC
+
+  DMZRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - DMZRouteTable
+      
+    DependsOn:
+     - SecurityVPC  
+  MGMTRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - MGMTRouteTable
+    DependsOn:
+     - SecurityVPC
+  UNTRUSTRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - UNTRUSTRouteTable      
+    DependsOn:
+     - SecurityVPC
+  trustRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - trustRouteTable      
+    DependsOn:
+     - SecurityVPC
+  vpc0HostRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'VPC0'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - vpc0HostRouteTable      
+    DependsOn:
+     - VPC0
+  vpc1HostRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'VPC1'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - vpc1HostRouteTable      
+    DependsOn:
+     - VPC1
+  
+  VPC0HostRouteAz1TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'VPC0HostSubnetAz0'
+      RouteTableId: !Ref 'vpc0HostRouteTable'
+    DependsOn:
+      - VPC0HostSubnetAz0
+      - vpc0HostRouteTable 
+  VPC0HostRouteAz2TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'VPC0HostSubnetAz1'
+      RouteTableId: !Ref 'vpc0HostRouteTable'
+    DependsOn:
+      - VPC0HostSubnetAz1
+      - vpc0HostRouteTable 
+  VPC1HostRouteAz1TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'VPC1HostSubnetAz0'
+      RouteTableId: !Ref 'vpc1HostRouteTable'
+    DependsOn:
+      - VPC1HostSubnetAz0
+      - vpc1HostRouteTable 
+  VPC1HostRouteAz2TableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'VPC1HostSubnetAz1'
+      RouteTableId: !Ref 'vpc1HostRouteTable'
+    DependsOn:
+      - VPC1HostSubnetAz1
+      - vpc1HostRouteTable 
+  DMZSubnetAz1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'DMZSubnetAz1'
+      RouteTableId: !Ref 'DMZRouteTable'
+    DependsOn:
+      - DMZSubnetAz1
+      - DMZRouteTable
+  DMZSubnetAz2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'DMZSubnetAz2'
+      RouteTableId: !Ref 'DMZRouteTable'
+    DependsOn:
+      - DMZRouteTable
+      - DMZSubnetAz2
+  MGMT1SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'MGMTSubnetAz1'
+      RouteTableId: !Ref 'MGMTRouteTable'
+    DependsOn:
+      - MGMTRouteTable
+  MGMT2SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'MGMTSubnetAz2'
+      RouteTableId: !Ref 'MGMTRouteTable'
+    DependsOn:
+      - MGMTRouteTable
+  UNTRUSTSubnetRouteTableAssociationAz1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'UNTRUSTSubnet1'
+      RouteTableId: !Ref 'UNTRUSTRouteTable'
+    DependsOn:
+      - UNTRUSTRouteTable
+      - UNTRUSTSubnet1
+  UNTRUSTSubnetRouteTableAssociationAz2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'UNTRUSTSubnet2'
+      RouteTableId: !Ref 'UNTRUSTRouteTable'
+    DependsOn:
+      - UNTRUSTRouteTable
+      - UNTRUSTSubnet2
+  TRUSTSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'TRUSTSubnet1'
+      RouteTableId: !Ref 'trustRouteTable'
+    DependsOn:
+      - TRUSTSubnet1
+      - trustRouteTable
+  TRUSTSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'TRUSTSubnet2'
+      RouteTableId: !Ref 'trustRouteTable'
+    DependsOn:
+      - TRUSTSubnet2
+      - trustRouteTable
+  
+  MGMTRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref 'MGMTRouteTable'
+      DestinationCidrBlock: '0.0.0.0/0'
+      InstanceId: !Ref 'natInstance'
+    DependsOn:
+      - natInstance
+      - MGMTRouteTable
+  DMZRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref 'DMZRouteTable'
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref 'InternetGateway'
+    DependsOn:
+      - DMZRouteTable
+      - InternetGateway
+  UNTRUSTRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref 'UNTRUSTRouteTable'
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref 'InternetGateway'
+    DependsOn:
+      - InternetGateway
+      - UNTRUSTRouteTable
+
+  TRUSTRoute10def:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref 'trustRouteTable'
+      DestinationCidrBlock: '0.0.0.0/0'
+      NetworkInterfaceId: !Ref 'FW1TrustNetworkInterface'
+    DependsOn:
+      - FW1TrustNetworkInterface
+      - trustRouteTable
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Network
+          Value: MGMT
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - InternetGateway
+      
+  GatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      InternetGatewayId: !Ref 'InternetGateway'
+    DependsOn:
+      - InternetGateway
+      - SecurityVPC
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+    DependsOn:
+      - SecurityVPC
+      - GatewayToInternet
+      - InternetGateway 
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+    DependsOn:
+      - SecurityVPC
+      - GatewayToInternet
+      - InternetGateway
+
+  associateEIP1:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt 'EIP1.AllocationId'
+      NetworkInterfaceId: !Ref 'FW1UntrustNetworkInterface'
+  associateEIP2:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt 'EIP2.AllocationId'
+      NetworkInterfaceId: !Ref 'FW2UntrustNetworkInterface'
+
+  BootstrapRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: BootstrapRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - !Ref 'S3BucketName'
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - !Ref 'S3BucketName'
+                    - /*
+  BootstrapInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref 'BootstrapRole'
+
+  FW1ManagementNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW1 MGMT
+      SubnetId: !Ref 'MGMTSubnetAz1'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: AWSFW1MGMT
+    DependsOn:
+      - sgWideOpen
+  FW1UntrustNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW1 E1/1
+      SubnetId: !Ref 'UNTRUSTSubnet1'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - AWSFW1Untrust
+    DependsOn:
+      - sgWideOpen
+  FW1TrustNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW1 E1/2
+      SubnetId: !Ref 'TRUSTSubnet1'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - AWSFW1Trust
+    DependsOn:
+      - sgWideOpen
+  FW2ManagementNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW2 MGMT
+      SubnetId: !Ref 'MGMTSubnetAz2'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - AWSFW2Mgt
+    DependsOn:
+      - sgWideOpen
+  FW2UntrustNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW2 E1/1
+      SubnetId: !Ref 'UNTRUSTSubnet2'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - AWSFW2Untrust
+    DependsOn:
+      - sgWideOpen
+  FW2TrustNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Description: AWS FW2 E1/2
+      SubnetId: !Ref 'TRUSTSubnet2'
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref 'sgWideOpen'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - AWSFW2Trust
+    DependsOn:
+      - sgWideOpen
+  
+  natInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap
+        - AWSNATAMI
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: !Ref 'NatInstanceType'
+      KeyName: !Ref 'KeyName'
+      SourceDestCheck: 'false'
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
+          SubnetId: !Ref 'DMZSubnetAz1'
+          GroupSet:
+            - !Ref 'sgWideOpen'     
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - TGWNatInstance
+  FW1Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      IamInstanceProfile: !Ref 'BootstrapInstanceProfile'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap
+        - AWSRegionArch2AMI
+        - !Ref 'AWS::Region'
+        - !Ref 'FWLicenseType'
+      InstanceType: !Ref 'FWInstanceType'
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            DeleteOnTermination: 'true'
+            VolumeSize: '60'
+      KeyName: !Ref 'KeyName'
+      Monitoring: 'false'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - FW1
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref 'FW1UntrustNetworkInterface'
+          DeviceIndex: 1
+        - NetworkInterfaceId: !Ref 'FW1ManagementNetworkInterface'
+          DeviceIndex: 0
+        - NetworkInterfaceId: !Ref 'FW1TrustNetworkInterface'
+          DeviceIndex: 2
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - vmseries-bootstrap-aws-s3bucket=
+            - !Ref 'S3BucketName'
+    DependsOn:
+      - FW1ManagementNetworkInterface
+      - FW1UntrustNetworkInterface
+      - FW1TrustNetworkInterface    
+  FW2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      IamInstanceProfile: !Ref 'BootstrapInstanceProfile'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap
+        - AWSRegionArch2AMI
+        - !Ref 'AWS::Region'
+        - !Ref 'FWLicenseType'
+      InstanceType: !Ref 'FWInstanceType'
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            DeleteOnTermination: 'true'
+            VolumeSize: '60'
+      KeyName: !Ref 'KeyName'
+      Monitoring: 'false'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - FW2
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref 'FW2UntrustNetworkInterface'
+          DeviceIndex: 1
+        - NetworkInterfaceId: !Ref 'FW2ManagementNetworkInterface'
+          DeviceIndex: 0
+        - NetworkInterfaceId: !Ref 'FW2TrustNetworkInterface'
+          DeviceIndex: 2
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - vmseries-bootstrap-aws-s3bucket=
+            - !Ref 'S3BucketName'
+    DependsOn:
+      - FW2ManagementNetworkInterface
+      - FW2UntrustNetworkInterface
+      - FW2TrustNetworkInterface
+      - FW1Instance   
+  VPC01TestServer:
+    Type: AWS::EC2::Instance                     
+    Properties:
+      ImageId:
+        !FindInMap                                 # This is an example of the short form YAML FindInMap function
+          - AWSRegionToAMI                         # It accepts three parameters each denoted by a hyphen (-)
+          - !Ref AWS::Region
+          - AMIID
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          GroupSet: 
+            - !Ref VPC0sgWideOpen
+          DeviceIndex: 0     
+          SubnetId: !Ref 'VPC0HostSubnetAz0'
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.1.0.102
+              Primary: 'true'          
+      UserData:
+        Fn::Base64:                                # YAML makes userdata much cleaner
+          !Sub 
+          - |
+              #!/bin/bash -ex
+              while true
+                do
+                  resp=$(curl -s -S -g --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=")   
+                  if [[ $resp == *"[CDATA[yes"* ]] ; then
+                    break
+                  fi
+                sleep 10s
+              done
+              yum install -y httpd;
+              echo "<html>Transit Gateway Demo Instance VPC0!!</html>" > /var/www/html/index.html;
+              cd /var/www/html;
+              chmod 755 index.html;
+              service httpd start;
+              chkconfig httpd on;
+          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress
+      Tags:                                      # Tags are an example of a sequence of mappings in YAML,
+        - Key: Name
+          Value: VPCTestServer             
+    DependsOn:
+      - VPC0HostSubnetAz0
+      - sgWideOpen
+      - FW1Instance
+      - FW2Instance
+      - VPC0sgWideOpen
+  VPC1TestServer:
+    Type: AWS::EC2::Instance                     
+    Properties:
+      ImageId:
+        !FindInMap                                 # This is an example of the short form YAML FindInMap function
+          - AWSRegionToAMI                         # It accepts three parameters each denoted by a hyphen (-)
+          - !Ref AWS::Region
+          - AMIID
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          GroupSet: 
+            - !Ref VPC1sgWideOpen
+          DeviceIndex: 0     
+          SubnetId: !Ref 'VPC1HostSubnetAz0'
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.2.0.101
+              Primary: 'true'          
+      UserData:
+        Fn::Base64:                                # YAML makes userdata much cleaner
+          !Sub 
+          - |
+              #!/bin/bash -ex
+              while true; do
+                  resp=$(curl -s -S -g --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=")   
+                  if [[ $resp == *"[CDATA[yes"* ]] ; then
+                    break
+                  fi
+                sleep 10s
+              done
+              yum install -y httpd;
+              echo "<html>Transit Gateway Demo Instance VPC1!!</html>" > /var/www/html/index.html;
+              cd /var/www/html;
+              chmod 755 index.html;
+              service httpd start;
+              chkconfig httpd on;
+          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress
+      Tags:                                      # Tags are an example of a sequence of mappings in YAML,
+        - Key: Name
+          Value: VPCTestServer             
+    DependsOn:
+      - VPC1HostSubnetAz0
+      - sgWideOpen
+      - FW1Instance
+      - FW2Instance
+      - VPC1sgWideOpen
+  WPWebInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId: !FindInMap
+        - UbuntuRegionMap
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: t2.micro
+      KeyName: !Ref 'KeyName'
+      Monitoring: 'false'
+      Tags:
+        - Key: Name
+          Value: WP Web Server 1
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref 'VPC0HostSubnetAz0'
+          PrivateIpAddresses:
+            - PrivateIpAddress: 10.1.0.110
+              Primary: 'true'
+          GroupSet:
+            - !Ref VPC0sgWideOpen
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - "#! /bin/bash\n"
+            - "exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console)\
+              \ 2>&1\n"
+            - "while true\n"
+            - "  do\n"
+            - '   resp=$(curl -s -S -g --insecure "https://'
+            - !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress
+            - "/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=\"\
+              )\n"
+            - "   if [[ $resp == *\"[CDATA[yes\"* ]] ; then\n"
+            - "     break\n"
+            - "   fi\n"
+            - "  sleep 10s\n"
+            - "done\n"
+            - "apt-get update\n"
+            - "apt-get install -y  unzip apache2 php libapache2-mod-php php-mysql\
+              \ php-pear php-gd\n"
+            - "wget https://github.com/ethicalhack3r/DVWA/archive/master.zip -P /var/www/html/\n"
+            - "cd /var/www/html/\n"
+            - "unzip /var/www/html/master.zip -d /var/www/html/\n"
+            - "cp /var/www/html/DVWA-master/config/config.inc.php.dist  /var/www/html/DVWA-master/config/config.inc.php\n"
+            - "sed -i \"s/allow_url_include = Off/allow_url_include = On/g\" /etc/php/7.0/apache2/php.ini\n"
+            - "sed -i \"s/p@ssw0rd/panadmin/g\" /var/www/html/DVWA-master/config/config.inc.php\n"
+            - "sed -i \"s/avatar varchar(70)/avatar varchar(100)/g\" /var/www/html/DVWA-master/dvwa/includes/DBMS/MySQL.php\n"
+            - "mv /var/www/html/DVWA-master /var/www/html/dvwa\n"
+            - "chmod 777 /var/www/html/dvwa\n"
+            - "chmod 777 /var/www/html/dvwa/hackable/uploads/\n"
+            - "chmod 777 /var/www/html/dvwa/external/phpids/0.6/lib/IDS/tmp/phpids_log.txt\n"
+            - "sudo apt-get -y install debconf-utils\n"
+            - "systemctl restart apache2\n"
+    DependsOn:
+      - VPC1HostSubnetAz0
+      - sgWideOpen
+      - FW2Instance
+      - VPC1sgWideOpen
+
+  SetTransitGatewayIdRoute:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - trustRouteTable
+      - vpc0HostRouteTable
+      - vpc1HostRouteTable
+      - TransitGateway
+    Properties:
+      ServiceToken: !GetAtt 'TransitGatewayInitialiseLambda.Arn'      
+  TransitGatewayInitialiseLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Sets TransitGatewayId as next hop
+      Handler: TransitGatewayInitialiseLambda.lambda_handler
+      Role: !GetAtt 'LambdaExecutionRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaFunctionsBucketName'
+        S3Key: !Ref 'LambdaZipFile'
+      Environment:
+        Variables:
+          trustRouteTableid: !Ref 'trustRouteTable'
+          vpc0HostRouteTableid: !Ref 'vpc0HostRouteTable'
+          vpc1HostRouteTableid: !Ref 'vpc1HostRouteTable'
+          transitGatewayid : !Ref 'TransitGateway'
+          Region: !Ref 'AWS::Region'
+      Runtime: python3.6
+      Timeout: '150'
+    DependsOn:
+      - trustRouteTable
+      - vpc0HostRouteTable
+      - vpc1HostRouteTable
+      - TransitGateway
+      - VPC0Attachment
+      - VPC1Attachment
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - TransitLambdaExecutionRole
+          - !Ref 'AWS::StackName'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  LambdaExecutionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Join
+        - '-'
+        - - TransitLambdaExecutionPolicy
+          - !Ref 'AWS::StackName'
+      Roles:
+        - !Ref 'LambdaExecutionRole'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: STSAccumRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource:
+              - '*'
+          - Sid: InvokeLambda
+            Effect: Allow
+            Action:
+              - lambda:Invoke
+              - lambda:InvokeFunction
+            Resource:
+              - '*'
+          - Action:
+              - iam:UpdateAssumeRolePolicy
+              - iam:GetRole
+              - iam:PassRole
+            Resource:
+              - '*'
+            Effect: Allow
+            Sid: IAMActions
+          - Action:
+              - cloudformation:*
+            Resource:
+              - '*'
+            Effect: Allow
+            Sid: CloudFormationActions
+          - Action:
+              - ec2:*
+            Resource:
+              - '*'
+            Effect: Allow
+            Sid: EC2FullAccess
+          - Sid: StateMachineActions
+            Effect: Allow
+            Action:
+              - states:ListExecutions
+              - states:StartExecution
+            Resource:
+              - '*'
+          - Sid: Logs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - '*'
+          - Sid: S3Actions
+            Effect: Allow
+            Action:
+              - s3:GetBucketAcl
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:GetObjectAcl
+              - s3:ListBucket
+              - s3:PutObject
+              - s3:PutObjectAcl
+              - s3:PutObjectTagging
+              - s3:DeleteBucket
+              - s3:DeleteBucketPolicy
+              - s3:DeleteObject
+            Resource:
+              - '*'
+          - Sid: DynamoDbActions
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DeleteItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:ListTables
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:TagResource
+              - dynamodb:UpdateItem
+              - dynamodb:UpdateTable
+            Resource:
+              - '*'
+          - Sid: SQSActions
+            Effect: Allow
+            Action:
+              - sqs:ChangeMessageVisibility
+              - sqs:DeleteMessage
+              - sqs:GetQueueUrl
+              - sqs:ListQueues
+              - sqs:ReceiveMessage
+              - sqs:SendMessage
+            Resource:
+              - '*'
+          - Sid: SNSACtions
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - '*' 
+Outputs:
+
+  KeyName:
+    Value: !Ref 'KeyName'
+    Description: Key Pair you have selected for SSH
+  VPCID:
+    Value: !Ref 'SecurityVPC'
+    Description: VPC ID
+  Fw1PublicIP:
+    Value: !Ref 'EIP1'
+    Description: Firewall 1 Untrust Interface Public IP
+  Fw2PublicIP:
+    Value: !Ref 'EIP2'
+    Description: Firewall 1 Untrust Interface Public IP
+  
