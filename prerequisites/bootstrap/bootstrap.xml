@@ -121,7 +121,6 @@
                 <lldp>
                   <enable>no</enable>
                 </lldp>
-                <interface-management-profile>mgt</interface-management-profile>
               </layer3>
             </entry>
           </ethernet>
@@ -134,12 +133,6 @@
               <action>wait-recover</action>
             </entry>
           </monitor-profile>
-          <interface-management-profile>
-            <entry name="mgt">
-              <https>yes</https>
-              <ssh>yes</ssh>
-            </entry>
-          </interface-management-profile>
         </profiles>
         <ike>
           <crypto-profiles>
@@ -327,7 +320,7 @@
                       <hold-time>2</hold-time>
                     </path-monitor>
                     <nexthop>
-                      <ip-address>192.168.2.1</ip-address>
+                      <ip-address>192.168.21.1</ip-address>
                     </nexthop>
                     <bfd>
                       <profile>None</profile>
@@ -417,18 +410,7 @@
               </network>
             </entry>
           </zone>
-          <service>
-            <entry name="2422">
-              <protocol>
-                <tcp>
-                  <port>2422</port>
-                  <override>
-                    <no/>
-                  </override>
-                </tcp>
-              </protocol>
-            </entry>
-          </service>
+          <service/>
           <service-group/>
           <schedule/>
           <rulebase>
@@ -464,18 +446,18 @@
                   </hip-profiles>
                   <action>allow</action>
                 </entry>
-                <entry name="ssh-to-WP">
+                <entry name="Allow-spoke-to-spoke">
                   <to>
                     <member>Trust</member>
                   </to>
                   <from>
-                    <member>Untrust</member>
+                    <member>Trust</member>
                   </from>
                   <source>
                     <member>any</member>
                   </source>
                   <destination>
-                    <member>FW-Untrust</member>
+                    <member>any</member>
                   </destination>
                   <source-user>
                     <member>any</member>
@@ -484,16 +466,15 @@
                     <member>any</member>
                   </category>
                   <application>
-                    <member>ssh</member>
+                    <member>any</member>
                   </application>
                   <service>
-                    <member>any</member>
+                    <member>application-default</member>
                   </service>
                   <hip-profiles>
                     <member>any</member>
                   </hip-profiles>
                   <action>allow</action>
-                  <log-start>no</log-start>
                 </entry>
               </rules>
             </security>
@@ -521,26 +502,6 @@
                   </destination>
                   <service>any</service>
                 </entry>
-                <entry name="WP-inbound">
-                  <dynamic-destination-translation>
-                    <translated-address>WP-Server</translated-address>
-                    <translated-port>22</translated-port>
-                  </dynamic-destination-translation>
-                  <to>
-                    <member>Untrust</member>
-                  </to>
-                  <from>
-                    <member>Untrust</member>
-                  </from>
-                  <source>
-                    <member>any</member>
-                  </source>
-                  <destination>
-                    <member>FW-Untrust</member>
-                  </destination>
-                  <service>2422</service>
-                  <to-interface>ethernet1/1</to-interface>
-                </entry>
               </rules>
             </nat>
           </rulebase>
@@ -552,14 +513,6 @@
               </interface>
             </network>
           </import>
-          <address>
-            <entry name="WP-Server">
-              <ip-netmask>10.1.0.110</ip-netmask>
-            </entry>
-            <entry name="FW-Untrust">
-              <ip-netmask>192.168.1.5</ip-netmask>
-            </entry>
-          </address>
         </entry>
       </vsys>
     </entry>
