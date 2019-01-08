@@ -863,7 +863,7 @@ Resources:
               - UNTRUSTRouteTable      
     DependsOn:
      - SecurityVPC
-  trustRouteTable:
+  trustRouteTableAz1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref 'SecurityVPC'
@@ -874,7 +874,21 @@ Resources:
           Value: !Join
             - '-'
             - - !Ref 'AWS::StackName'
-              - trustRouteTable      
+              - trustRouteTableAz1      
+    DependsOn:
+     - SecurityVPC
+  trustRouteTableAz2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'SecurityVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - trustRouteTableAz2      
     DependsOn:
      - SecurityVPC
   vpc0HostRouteTable:
@@ -988,18 +1002,19 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref 'TRUSTSubnet1'
-      RouteTableId: !Ref 'trustRouteTable'
+      RouteTableId: !Ref 'trustRouteTableAz1'
     DependsOn:
       - TRUSTSubnet1
-      - trustRouteTable
+      - trustRouteTableAz1
+  
   TRUSTSubnetRouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref 'TRUSTSubnet2'
-      RouteTableId: !Ref 'trustRouteTable'
+      RouteTableId: !Ref 'trustRouteTableAz2'
     DependsOn:
       - TRUSTSubnet2
-      - trustRouteTable
+      - trustRouteTableAz2
   
   MGMTRoute:
     Type: AWS::EC2::Route
@@ -1032,12 +1047,12 @@ Resources:
   TRUSTRoute10def:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref 'trustRouteTable'
+      RouteTableId: !Ref 'trustRouteTableAz1'
       DestinationCidrBlock: '0.0.0.0/0'
       NetworkInterfaceId: !Ref 'FW1TrustNetworkInterface'
     DependsOn:
       - FW1TrustNetworkInterface
-      - trustRouteTable
+      - trustRouteTableAz1
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -1492,7 +1507,7 @@ Resources:
   SetTransitGatewayIdRoute:
     Type: AWS::CloudFormation::CustomResource
     DependsOn:
-      - trustRouteTable
+      - trustRouteTableAz1
       - vpc0HostRouteTable
       - vpc1HostRouteTable
       - TransitGateway
@@ -1509,7 +1524,10 @@ Resources:
         S3Key: !Ref 'LambdaZipFile'
       Environment:
         Variables:
-          trustRouteTableid: !Ref 'trustRouteTable'
+          fw1InstanceId: !Ref 'FW1Instance'
+          fw2InstanceId: !Ref 'FW2Instance'
+          trustRouteTableAz1id: !Ref 'trustRouteTableAz1'
+          trustRouteTableAz2id: !Ref 'trustRouteTableAz2'
           vpc0HostRouteTableid: !Ref 'vpc0HostRouteTable'
           vpc1HostRouteTableid: !Ref 'vpc1HostRouteTable'
           transitGatewayid : !Ref 'TransitGateway'
@@ -1517,7 +1535,8 @@ Resources:
       Runtime: python3.6
       Timeout: '150'
     DependsOn:
-      - trustRouteTable
+      - trustRouteTableAz1
+      - trustRouteTableAz2
       - vpc0HostRouteTable
       - vpc1HostRouteTable
       - TransitGateway

@@ -13,7 +13,7 @@ defroutecidr = '0.0.0.0/0'
 vnetroutecidr = '10.0.0.0/8'
 
 
-def add_route(route_table_id, destination_cidr_block, transit_gateway_id):
+def add_route_tgw_nh(route_table_id, destination_cidr_block, transit_gateway_id):
     ec2 = boto3.client('ec2')
 
     resp = ec2.create_route(
@@ -22,9 +22,14 @@ def add_route(route_table_id, destination_cidr_block, transit_gateway_id):
         DestinationCidrBlock=destination_cidr_block,
         TransitGatewayId=transit_gateway_id,
     )
-    logger.info("Got response to add_route {} ".format(resp))
+    logger.info("Got response to add_route_tgw_nh {} ".format(resp))
     return resp
 
+def add_route_fw(fw_ip, tgi_attach_eni, prefix):
+    logger.info ("Adding routes to firewall route table")
+    
+def get_tgw_attchment_eni(vpc_id):
+    logger.info ("Getting the TGW attachment ENI for each trust subnet")
 
 def delete_route(route_table_id, destination_cidr_block):
     ec2 = boto3.client('ec2')
@@ -39,7 +44,11 @@ def delete_route(route_table_id, destination_cidr_block):
 
 def lambda_handler(event, context):
     logger.info("Got event {} ".format(event))
-    sec_route_table_id = os.environ['trustRouteTableid']
+    fw1InstanceId = os.environ['fw1InstanceId']
+    fw2InstanceId = os.environ['fw2InstanceId']
+
+
+    toTGWRouteTable = os.environ['toTGWRouteTableId']
     VPC0_route_table_id = os.environ['vpc0HostRouteTableid']
     VPC1_route_table_id = os.environ['vpc1HostRouteTableid']
     transit_gateway_id = os.environ['transitGatewayid']
@@ -47,11 +56,11 @@ def lambda_handler(event, context):
     responseData = {}
     responseData['data'] = 'Success'
     if event['RequestType'] == 'Create':
-        resp = add_route(VPC0_route_table_id, defroutecidr, transit_gateway_id)
+        resp = add_route_tgw_nh(VPC0_route_table_id, defroutecidr, transit_gateway_id)
         logger.info("Got response to route update on VPC0 {} ".format(resp))
-        resp1 = add_route(VPC1_route_table_id, defroutecidr, transit_gateway_id)
+        resp1 = add_route_tgw_nh(VPC1_route_table_id, defroutecidr, transit_gateway_id)
         logger.info("Got response to route update on VPC1 {} ".format(resp1))
-        res2 = add_route(sec_route_table_id, vnetroutecidr, transit_gateway_id)
+        res2 = add_route_tgw_nh(toTGWRouteTable, vnetroutecidr, transit_gateway_id)
         logger.info("Got response to route update on SecVPC {} ".format(res2))
         result = cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "CustomResourcePhysicalID")
         logger.info("Got response to cfnsend {} ".format(result))
@@ -62,7 +71,7 @@ def lambda_handler(event, context):
     elif event['RequestType'] == 'Delete':
         print("Got Delete event")
         try:
-            res = delete_route(sec_route_table_id, vnetroutecidr)
+            res = delete_route(fromTGWRouteTable, vnetroutecidr)
             res1 = delete_route(VPC0_route_table_id, defroutecidr)
             result = cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "CustomResourcePhysicalID")
 
