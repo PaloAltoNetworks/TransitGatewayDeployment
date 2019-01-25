@@ -126,13 +126,10 @@ Parameters:
   S3BucketName:
     Type: String
     Description: Enter the name S3 Bucket Name containing the Bootstrap files
-    MinLength: '3'
-    MaxLength: '120'
-    Default: 'jrh-tgw-boot'
   LambdaFunctionsBucketName:
     Description: Existing S3 bucket name which is having the Lambda funtions zip
     Type: String
-    Default: jrh-tgw-boot
+ 
   LambdaZipFile:
     Description: Lambda code zip filename which is stored in above mentioned Required
       parameters LambdaFunctionsBucketName
