@@ -1,3 +1,16 @@
+"""
+Palo Alto Networks network_ints.py
+
+Script triggered by a Cloudwatch event that will monitor the health of firewalls
+via the "show chassis status" op command on the Trust interface.
+The purpose is to assess the health of the firewall and modify an AWS route table to redirect
+traffic if the firewall is down.  When I firewall goes down routes within the route table bound to the
+TGW attachment will show next hop as blackhole.  The routes need to be updated to a functional eni.
+
+This software is provided without support, warranty, or guarantee.
+Use at your own risk.
+"""
+
 import logging
 import ssl
 import urllib
@@ -6,12 +19,10 @@ import urllib.request
 import xml
 import time
 import json
-import xml.etree.ElementTree as et
 import os
 import boto3
-from netaddr import *
-
-
+import netaddr
+import xml.etree.ElementTree as et
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -20,9 +31,18 @@ lambda_client = boto3.client('lambda')
 ec2_client = boto3.client('ec2')
 gcontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 
+subnets = []
+
 
 def updateDefaultRouteNextHop(hostname, api_key, subnetGateway, virtualRouter="default"):
-    '''Function to add a default route in the virtual router
+    '''
+    Updates the firewall route table with the next hop of the default gateway in the AWS subnet
+
+    :param hostname: IP address of the firewall
+    :param api_key:
+    :param subnetGateway: AWS subnet gateway (First IP in the subnet range)
+    :param virtualRouter: VR where we wish to apply this route
+    :return: Result of API request
     '''
     xpath = "/config/devices/entry[@name='localhost.localdomain']/network/virtual-router/entry[@name='default']/routing-table/ip/static-route/entry[@name='vnets']"
     element = "<destination>10.0.0.0/8</destination><interface>ethernet1/2</interface><nexthop><ip-address>{0}</ip-address></nexthop>".format(
@@ -32,8 +52,13 @@ def updateDefaultRouteNextHop(hostname, api_key, subnetGateway, virtualRouter="d
 
 
 def panEditConfig(hostname, api_key, xpath, element):
-    '''Function to make API call to "edit" (or modify) a specific configuration
-    Note: Some properties need "set" method instead of "edit" to work
+    '''
+
+    :param hostname: IP address of the firewall
+    :param api_key:
+    :param xpath: xpath of the configuration we wish to modify
+    :param element: element that we wish to modify
+    :return:
     '''
     data = {
         'type': 'config',
@@ -48,9 +73,12 @@ def panEditConfig(hostname, api_key, xpath, element):
     return response
 
 
-
 def makeApiCall(hostname, data):
-    '''Function to make API call
+    '''
+    Make api request data json object utf-8 enconded
+    :param hostname:
+    :param data:
+    :return:
     '''
     # Todo:
     # Context to separate function?
@@ -87,6 +115,7 @@ def editIpObject(hostname, api_key, name, value):
         name)
     element = "<ip-netmask>{0}</ip-netmask>".format(value)
     return panEditConfig(hostname, api_key, xpath, element)
+
 
 def getApiKey(hostname, username, password):
     '''Generate API keys using username/password
@@ -136,18 +165,10 @@ def checkPaGroupReady(username, password, paGroup):
         return False
 
 
-ec2_client = boto3.client('ec2')
-
-subnets = []
-
-
-
-
 def get_gw_ip(cidr):
-    ip = IPNetwork(cidr)
+    ip = netaddr.IPNetwork(cidr)
     iplist = list(ip)
     return iplist[1]
-
 
 
 def check_fw_up(gwMgmtIp, api_key):
@@ -191,8 +212,6 @@ def check_fw_up(gwMgmtIp, api_key):
             # so invoke lambda again and do this all over? Or just retry command?
 
 
-
-
 def terminate(success):
     global asg_name
     global asg_hookname
@@ -211,8 +230,6 @@ def terminate(success):
     #call autoscaling
 
     return
-
-
 
 
 def lambda_handler(event, context):
@@ -245,7 +262,6 @@ def lambda_handler(event, context):
 
     err = 'no'
     while (True):
-        # err = check_fw_up()
         err = check_fw_up(fw1ip, api_key)
         if err == 'cmd_error':
             logger.info("[ERROR]: Command error from fw")
@@ -253,74 +269,16 @@ def lambda_handler(event, context):
             return
         elif err == 'no':
             # logger.info("[INFO] FW is not up...yet")
-            if (context.get_remaining_time_in_millis()) / 1000 / 60 < 2:
-                logger.info("[INFO] have less than two minutes so call self")
-                parameters = {
-                }
-                # invoke_response = lambda_client.invoke(FunctionName=this_func_name,InvocationType='Event', Payload=json.dumps(parameters))
-                invoke_response = {'StatusCode': 202}
-                if invoke_response.get('StatusCode') == 202:
-                   logger.info("[INFO]: Got OK from invoke lambda functions. exiting...")
-                   return;
-                else:
-                   logger.info("[ERROR]: Something bad happened when calling lambda. invoke_response = {}".format(
-                       invoke_response))
-                   # terminate lifecycle action
-                   terminate('false')
-                   return
-            else:
-               # since we 2 or more minutes left of execution time, sleep (30) and trya again?
-               logger.info("[INFO]: 2 or more minutes left in lambda function. So will check again in 30s")
-               time.sleep(30)
-               continue
-           
+            time.sleep(60)
+            continue
         elif err == 'almost':
             # this means autocommit is happening
-            logger.info("[INFO]: FW is up, but chassis is not ready")
-            if (context.get_remaining_time_in_millis()) / 1000 / 60 < 2:  # get remaining time in minutes
-                logger.info("[INFO]: Have less than two minutes but fw is almost up, so call self and exit")
-                parameters = {
-                }
-                # invoke_response = lambda_client.invoke(FunctionName=this_func_name,InvocationType='Event', Payload=json.dumps(parameters))
-                invoke_response = {'StatusCode': 202}
-                if invoke_response.get('StatusCode') == 202:
-                    logger.info("[INFO]: Got OK from invoke lambda functions. exiting...")
-                    return;
-                else:
-                    logger.info("[ERROR]: Something bad happened when calling lambda. invoke_response = {}".format(
-                        invoke_response))
-                    # terminate lifecycle action
-                    terminate('false')
-                    return
-            else:
-                # since we 2 or more minutes left of execution time, sleep (30) and trya again?
-                logger.info(
-                    "[INFO]: 2 or more minutes left in lambda function. since autocommit is happening, sleep 10")
-                time.sleep(10)
-                continue
+            time.sleep(10)
+            continue
         elif err == 'yes':
-            logger.info("[INFO]: FW is up, but is there enough time left?")
+            logger.info("[INFO]: FW is up")
             break
-            # if (context.get_remaining_time_in_millis()) / 1000 / 60 < 3:
-            #     logger.info("[INFO]: No. 3 or less minutes remaining. So call self and exit")
-            #     parameters = {
-            #     }
-            #     #invoke_response = lambda_client.invoke(FunctionName=this_func_name,InvocationType='Event', Payload=json.dumps(parameters))
-            #     invoke_response = {'StatusCode': 202}
-            #     if invoke_response.get('StatusCode') == 202:
-            #         logger.info("[INFO]: Got OK from invoke lambda functions. exiting...")
-            #         return;
-            #     else:
-            #         logger.info("[ERROR]: Something bad happened when calling lambda. invoke_response = {}".format(
-            #             invoke_response))
-            #         # terminate lifecycle action
-            #         terminate('false')
-            #         return
-            # else:
-            #     logger.info(
-            #         "[INFO]: FW is up and there is 3 or more minutes left. So exit the loop and config gw...finally!!")
-            #     time.sleep(10)  # sleep as there is a time gap between ready and all daemons up
-            #     break
+
 
 
 
@@ -330,16 +288,10 @@ def lambda_handler(event, context):
 
     updateDefaultRouteNextHop(fw1ip, api_key, trustAZ1_subnet_gw, virtualRouter="default")
 
-    #updateDefaultRouteNextHop(fw2ip, api_key, trustAZ2_subnet_gw, virtualRouter="default")
+    updateDefaultRouteNextHop(fw2ip, api_key, trustAZ2_subnet_gw, virtualRouter="default")
 
     editIpObject(fw1ip, api_key, fw_untrust_int, fw1_untrust_int_ip)
-    #editIpObject(fw2ip, api_key, fw_untrust_int, fw2_untrust_int_ip)
-
-
-
-
-
-
+    editIpObject(fw2ip, api_key, fw_untrust_int, fw2_untrust_int_ip)
 
 
 if __name__ == '__main__':
