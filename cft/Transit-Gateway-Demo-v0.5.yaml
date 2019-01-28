@@ -12,10 +12,7 @@ Parameters:
     AllowedValues:
       - yes
       - no
-  preempt:
-    Description: Failback to original firewall when it becomes available
-    Type: String
-    Default: no
+
     AllowedValues:
       - yes
       - no
@@ -123,11 +120,11 @@ Parameters:
     AllowedValues:
       - yes
       - no
-  S3BucketName:
+  BootstrapBucket:
     Type: String
     Description: Enter the name S3 Bucket Name containing the Bootstrap files
   LambdaFunctionsBucketName:
-    Description: Existing S3 bucket name which is having the Lambda funtions zip
+    Description: Existing S3 bucket name which contains the Lambda funtions zip file
     Type: String
  
   LambdaZipFile:
@@ -140,6 +137,9 @@ Parameters:
       parameters LambdaFunctionsBucketName
     Type: String
     Default: TransitGatewayRouteMonitorLambda.zip
+
+
+
 Mappings:
   AWSNATAMI:
     us-east-1:
@@ -370,7 +370,41 @@ Mappings:
       URL1: https://s3.amazonaws.com
 Metadata:
   AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Route Monitor Configuration
+        Parameters:
+          - RouteFailover
+          - preempt
+          - splitroutes
+          - VpcSummaryRoute
+      - Label:
+          default: Security VPC Subnet Configuration
+        Parameters:
+          - VpcAzs
+          - SecurityVPCCIDR
+          - SecurityVPCName
+          - MgmtSubnetIpBlocks
+          - LambdaSubnetIpBlocks
+          - TrustSubnetIpBlocks
+          - UntrustSubnetIpBlocks
+          - DMZSubnetIpBlocks
+          - TGWattachIPBlocks
+      - Label:
+          default: Lambda Configuration
+        Parameters:
+          - LambdaZipFile
+          - RouteMonitorLambdaZipFile
+          - LambdaFunctionsBucketName
+      - Label:
+          default: Bootstrap Configuration
+        Parameters:
+          - BootstrapBucket
+          - apikey
+
     ParameterLabels:
+      BootstrapBucket:
+        default: S3 bucket containing the bootstrap folders and files
       SecurityVPCName:
         default: VPC Name
       SecurityVPCCIDR:
@@ -388,7 +422,7 @@ Metadata:
       WebInstanceType:
         default: Web Server Instance Size
       VpcSummaryRoute:
-        default: Template assumes 10.0.0.0/8 block
+        default: Sumamry Route for spoke VPCs the template assumes a 10.0.0.0/8 block
       preempt:
         default: Enable or Disable route table preempt
 Resources:
@@ -1305,13 +1339,13 @@ Resources:
                 Resource: !Join
                   - ''
                   - - 'arn:aws:s3:::'
-                    - !Ref 'S3BucketName'
+                    - !Ref 'BootstrapBucket'
               - Effect: Allow
                 Action: s3:GetObject
                 Resource: !Join
                   - ''
                   - - 'arn:aws:s3:::'
-                    - !Ref 'S3BucketName'
+                    - !Ref 'BootstrapBucket'
                     - /*
   BootstrapInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -1473,7 +1507,7 @@ Resources:
         Fn::Join:
           - ''
           - - vmseries-bootstrap-aws-s3bucket=
-            - !Ref 'S3BucketName'
+            - !Ref 'BootstrapBucket'
     DependsOn:
       - FW1ManagementNetworkInterface
       - FW1UntrustNetworkInterface
@@ -1515,7 +1549,7 @@ Resources:
         Fn::Join:
           - ''
           - - vmseries-bootstrap-aws-s3bucket=
-            - !Ref 'S3BucketName'
+            - !Ref 'BootstrapBucket'
     DependsOn:
       - FW2ManagementNetworkInterface
       - FW2UntrustNetworkInterface
