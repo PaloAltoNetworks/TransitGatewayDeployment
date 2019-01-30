@@ -1672,7 +1672,10 @@ Resources:
         S3Key: !Ref 'LambdaZipFile'
       Environment:
         Variables:
+          fw1InstanceId: !Ref 'FW1Instance'
+          fw2InstanceId: !Ref 'FW2Instance'
           toTGWRouteTableId: !Ref 'toTGWRouteTable'
+          fromTGWRouteTableId: !Ref 'fromTGWRouteTable'
           vpc0HostRouteTableid: !Ref 'vpc0HostRouteTable'
           vpc1HostRouteTableid: !Ref 'vpc1HostRouteTable'
           transitGatewayid : !Ref 'TransitGateway'
