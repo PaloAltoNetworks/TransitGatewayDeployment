@@ -7,3 +7,4 @@ ipv6-default-gateway=
 hostname=pa-fw
 dns-primary=8.8.8.8
 dns-secondary=8.8.4.4
+dhcp-accept-server-hostname=yes
