@@ -126,6 +126,7 @@ Parameters:
   LambdaFunctionsBucketName:
     Description: Existing S3 bucket name which contains the Lambda funtions zip file
     Type: String
+ 
   LambdaZipFile:
     Description: Lambda code zip filename which is stored in above mentioned Required
       parameters LambdaFunctionsBucketName
@@ -136,6 +137,9 @@ Parameters:
       parameters LambdaFunctionsBucketName
     Type: String
     Default: TransitGatewayRouteMonitorLambda.zip
+
+
+
 Mappings:
   AWSNATAMI:
     us-east-1:
@@ -185,6 +189,67 @@ Mappings:
       AMIID: ami-a900a3ca
     ap-southeast-2:
       AMIID: ami-5781be34
+  RegionMap:
+    us-east-1:
+      Subnet0AZ: us-east-1a
+      Subnet1AZ: us-east-1b
+      Realm: iad
+    us-east-2:
+      Subnet0AZ: us-east-2a
+      Subnet1AZ: us-east-2b
+      Realm: cmh
+    us-west-2:
+      Subnet0AZ: us-west-2a
+      Subnet1AZ: us-west-2b
+      Realm: pdx
+    us-west-1:
+      Subnet0AZ: us-west-1a
+      Subnet1AZ: us-west-1b
+      Realm: sfo
+    ca-central-1:
+      Subnet0AZ: ca-central-1a
+      Subnet1AZ: ca-central-1b
+      Realm: yul
+    eu-west-1:
+      Subnet0AZ: eu-west-1a
+      Subnet1AZ: eu-west-1b
+      Realm: dub
+    eu-west-3:
+      Subnet0AZ: eu-west-3a
+      Subnet1AZ: eu-west-3b
+      Realm: cdg
+    eu-west-2:
+      Subnet0AZ: eu-west-2a
+      Subnet1AZ: eu-west-2b
+      Realm: lhr
+    eu-central-1:
+      Subnet0AZ: eu-central-1a
+      Subnet1AZ: eu-central-1b
+      Realm: fra
+    sa-east-1:
+      Subnet0AZ: sa-east-1c
+      Subnet1AZ: sa-east-1a
+      Realm: gru
+    ap-southeast-1:
+      Subnet0AZ: ap-southeast-1a
+      Subnet1AZ: ap-southeast-1b
+      Realm: sin
+    ap-southeast-2:
+      Subnet0AZ: ap-southeast-2a
+      Subnet1AZ: ap-southeast-2b
+      Realm: syd
+    ap-northeast-1:
+      Subnet0AZ: ap-northeast-1a
+      Subnet1AZ: ap-northeast-1b
+      Realm: nrt
+    ap-northeast-2:
+      Subnet0AZ: ap-northeast-2a
+      Subnet1AZ: ap-northeast-2b
+      Realm: icn
+    ap-south-1:
+      Subnet0AZ: ap-south-1a
+      Subnet1AZ: ap-south-1b
+      Realm: bom
   UbuntuRegionMap:
     us-west-2:
       AMI: ami-efd0428f
@@ -361,6 +426,18 @@ Metadata:
       preempt:
         default: Enable or Disable route table preempt
 Resources:
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties:
+      Description: "Security TransitGateway"
+      AutoAcceptSharedAttachments: "disable"
+      DefaultRouteTableAssociation: "disable"
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - tgw-security
   sgWideOpen:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -424,7 +501,8 @@ Resources:
         - IpProtocol: '-1'
           CidrIp: '0.0.0.0/0'
       VpcId: !Ref 'SecurityVPC'
-      VpcId: !Ref 'SecurityVPC'  
+      VpcId: !Ref 'SecurityVPC'
+  
   SecurityVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -437,7 +515,237 @@ Resources:
             - '-'
             - - !Ref 'AWS::StackName'
               - tgw-security
-    DMZSubnetAz1:
+  VPC0:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - tgw-spoke1
+  VPC1:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - tgw-spoke2
+  VPC0HostSubnetAz0:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn : VPC0
+    Properties:
+      VpcId: !Ref VPC0
+      CidrBlock: 10.1.0.0/24
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - spoke1-azA
+  VPC0HostSubnetAz1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn : VPC0
+    Properties:
+      VpcId: !Ref VPC0
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - spoke1-azB
+  VPC1HostSubnetAz0:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC1
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.2.0.0/24
+      AvailabilityZone: !Select
+        - '0'
+        - !Ref 'VpcAzs'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - spoke2-azA
+  VPC1HostSubnetAz1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC1
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.2.1.0/24
+      AvailabilityZone: !Select
+        - '1'
+        - !Ref 'VpcAzs'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - spoke2-azB
+
+  SecurityVPCAttachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+    - TGWattach1
+    - TGWattach2
+    - TransitGateway
+    Properties:
+      VpcId: !Ref SecurityVPC
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref TGWattach1
+      - !Ref TGWattach2
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - attach-sec
+  VPC0AttachmentAzA:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+      - VPC0HostSubnetAz0
+      - VPC0HostSubnetAz1
+      - VPC0
+      - TransitGateway
+    Properties:
+      VpcId: !Ref VPC0
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref VPC0HostSubnetAz0
+      - !Ref VPC0HostSubnetAz1
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - attach-spoke1
+ 
+  VPC1AttachmentAzA:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    DependsOn:
+      - VPC1HostSubnetAz0
+      - VPC1HostSubnetAz1
+      - VPC1
+      - TransitGateway
+    Properties:
+      VpcId: !Ref VPC1
+      TransitGatewayId: !Ref TransitGateway
+      SubnetIds:
+      - !Ref VPC1HostSubnetAz0
+      - !Ref VPC1HostSubnetAz1
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - attach-spoke2
+
+ 
+  VPC0AttachmentPropagation:      
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref VPC0AttachmentAzA
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+    DependsOn:
+      - VPC0AttachmentAzA
+      - SecurityVPCRouteTable
+  VPC1AttachmentPropagation:     
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref VPC1AttachmentAzA
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+    DependsOn:
+      - VPC1AttachmentAzA
+      - SecurityVPCRouteTable
+  SecVPCAttachmentPropagation:     
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+    DependsOn:
+      - VPC0RouteTable
+      - SecurityVPCAttachment
+  
+  VPC0RouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    DependsOn:
+    - TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - rtb-spoke     
+  SecurityVPCRouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    DependsOn:
+    - TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - rtb-security
+      
+
+  VPC0TgwRtAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - VPC0RouteTable
+    - VPC0AttachmentAzA
+    Properties:
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+      TransitGatewayAttachmentId: !Ref VPC0AttachmentAzA
+  VPC1TgwRtAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - VPC0RouteTable
+    - VPC1AttachmentAzA
+    Properties:
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+      TransitGatewayAttachmentId: !Ref VPC1AttachmentAzA
+  SecurityVPCAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    DependsOn:
+    - SecurityVPCRouteTable
+    - SecurityVPCAttachment
+    Properties:
+      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+
+  VPC0DefRouteToSecurityVPC:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    DependsOn:
+    - VPC0RouteTable
+    - SecurityVPCAttachment
+    Properties:
+      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
+      DestinationCidrBlock: "0.0.0.0/0"
+      TransitGatewayRouteTableId: !Ref VPC0RouteTable
+
+  DMZSubnetAz1:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: !Select
@@ -663,239 +971,6 @@ Resources:
               - sec-tgwattachB 
     DependsOn:
      - SecurityVPC
-  VPC0:
-    Type: 'AWS::EC2::VPC'
-    Properties:
-      CidrBlock: 10.1.0.0/16
-      EnableDnsSupport: 'true'
-      EnableDnsHostnames: 'true'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - tgw-spoke1
-  VPC1:
-    Type: 'AWS::EC2::VPC'
-    Properties:
-      CidrBlock: 10.2.0.0/16
-      EnableDnsSupport: 'true'
-      EnableDnsHostnames: 'true'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - tgw-spoke2
-  VPC0HostSubnetAz0:
-    Type: 'AWS::EC2::Subnet'
-    DependsOn : VPC0
-    Properties:
-      VpcId: !Ref VPC0
-      CidrBlock: 10.1.0.0/24
-      AvailabilityZone: !Select
-        - '0'
-        - !Ref 'VpcAzs'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - spoke1-azA
-  VPC0HostSubnetAz1:
-    Type: 'AWS::EC2::Subnet'
-    DependsOn : VPC0
-    Properties:
-      VpcId: !Ref VPC0
-      CidrBlock: 10.1.1.0/24
-      AvailabilityZone: !Select
-        - '1'
-        - !Ref 'VpcAzs'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - spoke1-azB
-  VPC1HostSubnetAz0:
-    Type: 'AWS::EC2::Subnet'
-    DependsOn: VPC1
-    Properties:
-      VpcId: !Ref VPC1
-      CidrBlock: 10.2.0.0/24
-      AvailabilityZone: !Select
-        - '0'
-        - !Ref 'VpcAzs'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - spoke2-azA
-  VPC1HostSubnetAz1:
-    Type: 'AWS::EC2::Subnet'
-    DependsOn: VPC1
-    Properties:
-      VpcId: !Ref VPC1
-      CidrBlock: 10.2.1.0/24
-      AvailabilityZone: !Select
-        - '1'
-        - !Ref 'VpcAzs'
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - spoke2-azB
-  TransitGateway:
-    Type: "AWS::EC2::TransitGateway"
-    Properties:
-      Description: "Security TransitGateway"
-      AutoAcceptSharedAttachments: "disable"
-      DefaultRouteTableAssociation: "disable"
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - tgw-security
-  SecurityVPCRouteTable:
-    Type: "AWS::EC2::TransitGatewayRouteTable"
-    DependsOn:
-    - TransitGateway
-    Properties:
-      TransitGatewayId: !Ref TransitGateway
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - rtb-security
-  VPC0RouteTable:
-    Type: "AWS::EC2::TransitGatewayRouteTable"
-    DependsOn:
-    - TransitGateway
-    Properties:
-      TransitGatewayId: !Ref TransitGateway
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - rtb-spoke     
-  SecurityVPCAttachment:
-    Type: "AWS::EC2::TransitGatewayAttachment"
-    DependsOn:
-    - TGWattach1
-    - TGWattach2
-    - TransitGateway
-    Properties:
-      VpcId: !Ref SecurityVPC
-      TransitGatewayId: !Ref TransitGateway
-      SubnetIds:
-      - !Ref TGWattach1
-      - !Ref TGWattach2
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - attach-sec
-  VPC0AttachmentAzA:
-    Type: "AWS::EC2::TransitGatewayAttachment"
-    DependsOn:
-      - VPC0HostSubnetAz0
-      - VPC0HostSubnetAz1
-      - VPC0
-      - TransitGateway
-    Properties:
-      VpcId: !Ref VPC0
-      TransitGatewayId: !Ref TransitGateway
-      SubnetIds:
-      - !Ref VPC0HostSubnetAz0
-      - !Ref VPC0HostSubnetAz1
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - attach-spoke1
-  VPC1AttachmentAzA:
-    Type: "AWS::EC2::TransitGatewayAttachment"
-    DependsOn:
-      - VPC1HostSubnetAz0
-      - VPC1HostSubnetAz1
-      - VPC1
-      - TransitGateway
-    Properties:
-      VpcId: !Ref VPC1
-      TransitGatewayId: !Ref TransitGateway
-      SubnetIds:
-      - !Ref VPC1HostSubnetAz0
-      - !Ref VPC1HostSubnetAz1
-      Tags:
-        - Key: Name
-          Value: !Join
-            - '-'
-            - - !Ref 'AWS::StackName'
-              - attach-spoke2 
-  VPC0AttachmentPropagation:      
-    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
-    Properties:
-      TransitGatewayAttachmentId: !Ref VPC0AttachmentAzA
-      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
-    DependsOn:
-      - VPC0AttachmentAzA
-      - SecurityVPCRouteTable
-  VPC1AttachmentPropagation:     
-    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
-    Properties:
-      TransitGatewayAttachmentId: !Ref VPC1AttachmentAzA
-      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
-    DependsOn:
-      - VPC1AttachmentAzA
-      - SecurityVPCRouteTable
-  SecVPCAttachmentPropagation:     
-    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
-    Properties:
-      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
-      TransitGatewayRouteTableId: !Ref VPC0RouteTable
-    DependsOn:
-      - VPC0RouteTable
-      - SecurityVPCAttachment
-  VPC0TgwRtAssociation:
-    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
-    DependsOn:
-    - VPC0RouteTable
-    - VPC0AttachmentAzA
-    Properties:
-      TransitGatewayRouteTableId: !Ref VPC0RouteTable
-      TransitGatewayAttachmentId: !Ref VPC0AttachmentAzA
-  VPC1TgwRtAssociation:
-    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
-    DependsOn:
-    - VPC0RouteTable
-    - VPC1AttachmentAzA
-    Properties:
-      TransitGatewayRouteTableId: !Ref VPC0RouteTable
-      TransitGatewayAttachmentId: !Ref VPC1AttachmentAzA
-  SecurityVPCAssociation:
-    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
-    DependsOn:
-    - SecurityVPCRouteTable
-    - SecurityVPCAttachment
-    Properties:
-      TransitGatewayRouteTableId: !Ref SecurityVPCRouteTable
-      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
-  VPC0DefRouteToSecurityVPC:
-    Type: "AWS::EC2::TransitGatewayRoute"
-    DependsOn:
-    - VPC0RouteTable
-    - SecurityVPCAttachment
-    Properties:
-      TransitGatewayAttachmentId: !Ref SecurityVPCAttachment
-      DestinationCidrBlock: "0.0.0.0/0"
-      TransitGatewayRouteTableId: !Ref VPC0RouteTable
   fromTGWRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -952,6 +1027,7 @@ Resources:
               - LambdaRouteTable
     DependsOn:
      - SecurityVPC
+  
   UNTRUSTRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -1116,6 +1192,7 @@ Resources:
     DependsOn:
       - TRUSTSubnet2
       - toTGWRouteTable
+
   TGWAtachRouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -1148,6 +1225,7 @@ Resources:
     DependsOn:
       - natInstance
       - LambdaRouteTable
+  
   DMZRoute:
     Type: AWS::EC2::Route
     Properties:
@@ -1196,7 +1274,8 @@ Resources:
           Value: !Join
             - '-'
             - - !Ref 'AWS::StackName'
-              - InternetGateway  
+              - InternetGateway
+      
   GatewayToInternet:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -1223,6 +1302,7 @@ Resources:
       - SecurityVPC
       - GatewayToInternet
       - InternetGateway
+
   associateEIP1:
     Type: AWS::EC2::EIPAssociation
     Properties:
@@ -1233,6 +1313,7 @@ Resources:
     Properties:
       AllocationId: !GetAtt 'EIP2.AllocationId'
       NetworkInterfaceId: !Ref 'FW2UntrustNetworkInterface'
+
   BootstrapRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1268,6 +1349,7 @@ Resources:
       Path: /
       Roles:
         - !Ref 'BootstrapRole'
+
   FW1ManagementNetworkInterface:
     Type: AWS::EC2::NetworkInterface
     Properties:
@@ -1361,6 +1443,7 @@ Resources:
               - AWSFW2Trust
     DependsOn:
       - sgWideOpen
+  
   natInstance:
     Type: AWS::EC2::Instance
     Properties:
@@ -1628,11 +1711,11 @@ Resources:
       - sgWideOpen
       - FW2Instance
       - VPC1sgWideOpen
+
   SetTransitGatewayIdRoute:
     Type: AWS::CloudFormation::CustomResource
     DependsOn:
       - toTGWRouteTable
-      - fromTGWRouteTable
       - vpc0HostRouteTable
       - vpc1HostRouteTable
       - TransitGateway
@@ -1656,6 +1739,7 @@ Resources:
           vpc0HostRouteTableid: !Ref 'vpc0HostRouteTable'
           vpc1HostRouteTableid: !Ref 'vpc1HostRouteTable'
           transitGatewayid : !Ref 'TransitGateway'
+          Region: !Ref 'AWS::Region'
       Runtime: python3.6
       Timeout: '150'
     DependsOn:
@@ -1666,7 +1750,8 @@ Resources:
       - vpc1HostRouteTable
       - TransitGateway
       - VPC0AttachmentAzA
-      - VPC1AttachmentAzA 
+      - VPC1AttachmentAzA
+  
   TransitGatewayRouteMonitorLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1705,6 +1790,8 @@ Resources:
       - WPWebInstance
       - FW1TrustNetworkInterface
       - FW2TrustNetworkInterface
+  
+
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1833,6 +1920,7 @@ Resources:
             Resource:
               - '*' 
 Outputs:
+
   KeyName:
     Value: !Ref 'KeyName'
     Description: Key Pair you have selected for SSH
