@@ -1,12 +1,14 @@
-Help on module TransitGatewayRouteMonitorLambda:
+# Help on module TransitGatewayRouteMonitorLambda:
 
-NAME
+## NAME
     TransitGatewayRouteMonitorLambda - Palo Alto Networks TransitGatewayRouteMonitorLambda.py
 
-FILE
+## FILE
+
     /Users/jharris/Documents/PycharmProjects/transitgateway/source/lambda package/TransitGatewayRouteMonitorLambda.py
 
-DESCRIPTION
+## DESCRIPTION
+
     Script triggered by a Cloudwatch event that will monitor the health of firewalls
     via the "show chassis status" op command on the Trust interface.
     The purpose is to assess the health of the firewall and modify an AWS route table to redirect
@@ -16,8 +18,10 @@ DESCRIPTION
     This software is provided without support, warranty, or guarantee.
     Use at your own risk.
 
-FUNCTIONS
-    check_for_split_routes(route_table_id, vpc_summary_route, def_route)
+## FUNCTIONS
+
+###     check_for_split_routes(route_table_id, vpc_summary_route, def_route)
+
         Checks the route table if split_routes == True and if both the vpc_summary and Default point to the same eni
         Return False else Return True.  When split routes is True we want to use both firewalls.  Firewall 1 for internet
         traffic and firewall 2 for east/west traffic.
@@ -29,7 +33,8 @@ FUNCTIONS
         :param route_table_id: route table the we need to check
         :return: True/False
     
-    failover(route_table_id, failed_eni, backup_eni)
+###     failover(route_table_id, failed_eni, backup_eni)
+
         Looks for routes that are blackholed by the failure of the firewall
         When it finds a route it will call replace_vpc_route_to_fw to update the next hop to a functional eni
         
@@ -38,18 +43,19 @@ FUNCTIONS
         :param backup_eni: NetworkInterfaceId: The eni of the Firewall that we need to failover to
         :return:
     
-    get_firewall_status(gwMgmtIp, api_key)
+###    get_firewall_status(gwMgmtIp, api_key)
+
         Reruns the status of the firewall.  Calls the op command show chassis status
         Requires an apikey and the IP address of the interface we send the api request
         :param gwMgmtIp:
         :param api_key:
         :return:
     
-    lambda_handler(event, context)
+###     lambda_handler(event, context)
+
         Controls the failover of routing of traffic between VPC's and to the internet.   In the event of a failure the
         backup firewall will provide routing and security
-        
-        
+
         preempt = os.environ['preempt'] Set this value to TRUE if you wish the firewalls to return to an Active/Active state
         as soon as the failed firewall becomees healthy again or set it to true in the environment variables during a change
         window.
@@ -67,7 +73,7 @@ FUNCTIONS
         :param context:
         :return:
     
-    replace_vpc_route_to_fw(route_table_id, destination_cidr_block, NetworkInterfaceId, DryRun=False)
+###     replace_vpc_route_to_fw(route_table_id, destination_cidr_block, NetworkInterfaceId, DryRun=False)
         Scan the route table for blackhole routes where the next hop is the eni of the failed firewall.
         In order to replace the routes we first delete the route and then add a new route pointing to the
         backup eni.
