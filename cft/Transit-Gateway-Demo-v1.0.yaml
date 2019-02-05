@@ -454,7 +454,7 @@ Resources:
         - Arn: !Sub ${TransitGatewayRouteMonitorLambda.Arn}
           Id: LambdaSchedule
     DependsOn:
-      -TransitGatewayRouteMonitorLambda
+      - TransitGatewayRouteMonitorLambda
   TransitGateway:
     Type: "AWS::EC2::TransitGateway"
     Properties:
@@ -1580,7 +1580,7 @@ Resources:
       - FW2UntrustNetworkInterface
       - FW2TrustNetworkInterface
       - FW1Instance   
-  VPC01TestServer:
+  VPC0TestServer:
     Type: AWS::EC2::Instance                     
     Properties:
       ImageId:
@@ -1601,28 +1601,30 @@ Resources:
             - PrivateIpAddress: 10.1.0.102
               Primary: 'true'          
       UserData:
-        Fn::Base64:                                # YAML makes userdata much cleaner
-          !Sub 
-          - |
-              #!/bin/bash -ex
-              while true
-                do
-                  resp=$(curl -s -S -g --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=")   
-                  if [[ $resp == *"[CDATA[yes"* ]] ; then
+        Fn::Base64:
+         !Sub 
+          - |    
+                #!/bin/bash -ex
+                until resp=$(curl -s -S -g --max-time 3 --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=");do
+                if [[ $resp == *"[CDATA[yes"* ]] ; then
                     break
                   fi
-                sleep 10s
-              done
-              yum install -y httpd;
-              echo "<html>Transit Gateway Demo Instance VPC0!!</html>" > /var/www/html/index.html;
-              cd /var/www/html;
-              chmod 755 index.html;
-              service httpd start;
-              chkconfig httpd on;
-          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress
+                  sleep 10s
+                done
+                yum install -y httpd;
+                echo "<html>Transit Gateway Demo Instance VPC1!!</html>" > /var/www/html/index.html;
+                cd /var/www/html;
+                chmod 755 index.html;
+                service httpd start;
+                chkconfig httpd on;
+          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress                                                
+   
       Tags:                                      # Tags are an example of a sequence of mappings in YAML,
         - Key: Name
-          Value: VPCTestServer             
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPC0TestServer             
     DependsOn:
       - VPC0HostSubnetAz0
       - sgWideOpen
@@ -1648,29 +1650,31 @@ Resources:
           SubnetId: !Ref 'VPC1HostSubnetAz0'
           PrivateIpAddresses:
             - PrivateIpAddress: 10.2.0.101
-              Primary: 'true'          
+              Primary: 'true' 
       UserData:
-        Fn::Base64:                                # YAML makes userdata much cleaner
-          !Sub 
-          - |
-              #!/bin/bash -ex
-              while true; do
-                  resp=$(curl -s -S -g --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=")   
-                  if [[ $resp == *"[CDATA[yes"* ]] ; then
+        Fn::Base64:
+         !Sub 
+          - |    
+                #!/bin/bash -ex
+                until resp=$(curl -s -S -g --max-time 3 --insecure "https://${FWTrustIP}/api/?type=op&cmd=<show><chassis-ready></chassis-ready></show>&key=LUFRPT1qS2xCRmZ6WVMrREtrK00yUGt4dVRna2lkY1U9cmgyaE93L3VoZ2U3WUgxeFpGVE1wOUNtdlM2S0Z5Z25ObG8wbmZoNXpuWT0=");do
+                if [[ $resp == *"[CDATA[yes"* ]] ; then
                     break
                   fi
-                sleep 10s
-              done
-              yum install -y httpd;
-              echo "<html>Transit Gateway Demo Instance VPC1!!</html>" > /var/www/html/index.html;
-              cd /var/www/html;
-              chmod 755 index.html;
-              service httpd start;
-              chkconfig httpd on;
-          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress
-      Tags:                                      # Tags are an example of a sequence of mappings in YAML,
+                  sleep 10s
+                done
+                yum install -y httpd;
+                echo "<html>Transit Gateway Demo Instance VPC1!!</html>" > /var/www/html/index.html;
+                cd /var/www/html;
+                chmod 755 index.html;
+                service httpd start;
+                chkconfig httpd on;
+          - FWTrustIP:  !GetAtt FW1TrustNetworkInterface.PrimaryPrivateIpAddress                                                
+      Tags:                                      
         - Key: Name
-          Value: VPCTestServer             
+          Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - VPCTestServer             
     DependsOn:
       - VPC1HostSubnetAz0
       - sgWideOpen
@@ -1690,8 +1694,11 @@ Resources:
       KeyName: !Ref 'KeyName'
       Monitoring: 'false'
       Tags:
-        - Key: Name
-          Value: WP Web Server 1
+      - Key: Name
+        Value: !Join
+            - '-'
+            - - !Ref 'AWS::StackName'
+              - WPWebServer1
       NetworkInterfaces:
         - DeleteOnTermination: 'true'
           Description: Primary network interface
@@ -1920,7 +1927,6 @@ Resources:
       - FW1Instance
       - FW2Instance
       - fromTGWRouteTable
-      - WPWebInstance
       - FW1TrustNetworkInterface
       - FW2TrustNetworkInterface
   
