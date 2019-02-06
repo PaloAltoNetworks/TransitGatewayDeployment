@@ -10,8 +10,6 @@ Use at your own risk.
 import logging
 import ssl
 import urllib
-import urllib.error
-import urllib.request
 import xml
 import os
 import netaddr
@@ -33,9 +31,9 @@ subnets = []
 
 def find_subnet_by_id( subnet_id):
     """
-    find a subnet by subnet ID
+    find a subnet by subnet ID. Sets a Filter based on the subnet_id and calls find_classic_subnet()
     :param subnet_id: 
-    :return: 
+
     """
     kwargs = {
         'SubnetIds': [subnet_id]
@@ -44,7 +42,7 @@ def find_subnet_by_id( subnet_id):
 
 
 def find_subnet_by_block(cidr):
-    """find a subnet by CIDR block"""
+    """find a subnet by CIDR block. Sets a Filter based on the subnet CIDR and calls find_classic_subnet()"""
     kwargs = {
         'Filters': [
             {
@@ -57,7 +55,8 @@ def find_subnet_by_block(cidr):
 
 
 def find_classic_subnet(kwargs):
-    """call describe_subnets passing kwargs"""
+    """call describe_subnets passing kwargs.  Returns the first subnet in the list of subnets.
+    """
     logger.info("Querying for subnet")
     logger.debug("calling ec2.describe_subnets with args: %s", kwargs)
     try:
@@ -75,7 +74,7 @@ def find_classic_subnet(kwargs):
     return subnets[0]
 
 
-def updateRouteNexthop(hostname, api_key, subnetGateway, virtualRouter="default"):
+def updateRouteNexthop(route, hostname, api_key, subnetGateway, virtualRouter="default"):
     """
     Updates the firewall route table with the next hop of the default gateway in the AWS subnet
 
@@ -85,22 +84,26 @@ def updateRouteNexthop(hostname, api_key, subnetGateway, virtualRouter="default"
     :param virtualRouter: VR where we wish to apply this route
     :return: Result of API request
     """
-    xpath = "/config/devices/entry[@name='localhost.localdomain']/network/virtual-router/entry[@name='default']/routing-table/ip/static-route/entry[@name='vnets']"
-    element = "<destination>10.0.0.0/8</destination><interface>ethernet1/2</interface><nexthop><ip-address>{0}</ip-address></nexthop>".format(
-        subnetGateway)
+    xpath = "/config/devices/entry[@name='localhost.localdomain']/network/" \
+            "virtual-router/entry[@name='default']/routing-table/ip/static-route/entry[@name='vnets']"
+    element = "<destination>{0}</destination><interface>ethernet1/2" \
+              "</interface><nexthop><ip-address>{1}</ip-address></nexthop>".format(route, subnetGateway)
+
 
     return panSetConfig(hostname, api_key, xpath, element)
 
 
 def panEditConfig(hostname, api_key, xpath, element):
     """
-
+    Builds a request object and then Calls makeApiCall with request object.
     :param hostname: IP address of the firewall
     :param api_key:
     :param xpath: xpath of the configuration we wish to modify
     :param element: element that we wish to modify
-    :return:
+    :return:  Returns the firewall response
     """
+    logger.info("Updating edit config with xpath \n{} and element \n{} ".format(xpath, element))
+
     data = {
         'type': 'config',
         'action': 'edit',
@@ -109,21 +112,27 @@ def panEditConfig(hostname, api_key, xpath, element):
         'element': element
     }
     response = makeApiCall(hostname, data)
-    # process response and return success or failure?
-    # Debug should print output as well?
+
     return response
 
 
 def makeApiCall(hostname, data):
     """
-    Make api request data json object utf-8 enconded
+    Makes the API call to the firewall interface.  We turn off certificate checking before making the API call.
+    Returns the API response from the firewall.
     :param hostname:
     :param data:
-    :return:
+    :return: Expected response
+    <response status="success">
+        <result>
+            <![CDATA[yes\n]]>
+        </result>
+    </response>
     """
 
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
+    # No certificate check
     ctx.verify_mode = ssl.CERT_NONE
     url = "https://" + hostname + "/api"
     encoded_data = urllib.parse.urlencode(data).encode('utf-8')
@@ -140,18 +149,20 @@ def panSetConfig(hostname, api_key, xpath, element):
         'xpath': xpath,
         'element': element
     }
+    logger.info("Updating set config with xpath \n{} and element \n{} ".format(xpath, element))
     response = makeApiCall(hostname, data)
     # process response and return success or failure?
     # Debug should print output as well?
     return response
 
 
-def editIpObject(hostname, api_key, name, value):
+
+def editIpObject(hostname, api_key, objectname, address):
     """Function to edit/update an existing IP Address object on a PA Node
     """
     xpath = "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='vsys1']/address/entry[@name='{0}']/ip-netmask".format(
-        name)
-    element = "<ip-netmask>{0}</ip-netmask>".format(value)
+        objectname)
+    element = "<ip-netmask>{0}</ip-netmask>".format(address)
     return panEditConfig(hostname, api_key, xpath, element)
 
 
@@ -236,16 +247,17 @@ def getFirewallStatus(gwMgmtIp, api_key):
 
 
 
-def updateTGWFirewall(fw_trust_ip, fw_untrust_ip, api_key, trustAZ_subnet_cidr, fw_untrust_int):
-
+def updateTGWFirewall(vpc_summary_route, fw_trust_ip, fw_untrust_ip, api_key, trustAZ_subnet_cidr, fw_untrust_int):
     """
-    Return Firewall status
+    Parse the repsonse from makeApiCall()
     :param fw_trust_ip:
     :param fw_untrust_ip:
     :param api_key:
     :param trustAZ_subnet_cidr:
     :param fw_untrust_int:
     :return:
+    If we see the string 'yes' in the repsonse we will assume that the firewall is up and continue with the firewall
+    configuration
     """
 
     class FWNotUpException(Exception):
@@ -272,15 +284,20 @@ def updateTGWFirewall(fw_trust_ip, fw_untrust_ip, api_key, trustAZ_subnet_cidr, 
             logger.info("[INFO]: FW is up")
             break
 
+    # Get the gateway IP for the trust subnet
     trustAZ_subnet_gw = get_gw_ip(trustAZ_subnet_cidr)
-    updateRouteNexthop(fw_trust_ip, api_key, trustAZ_subnet_gw, virtualRouter="default")
+
+    # Update the route table with a static route
+    updateRouteNexthop(vpc_summary_route,fw_trust_ip, api_key, trustAZ_subnet_gw, virtualRouter="default")
+
+    # Update an address object of the firewall.
     editIpObject(fw_trust_ip, api_key, fw_untrust_int, fw_untrust_ip)
 
 
 
 def lambda_handler(event, context):
 
-
+    logger.info("Got Event {}".format(event))
     vpc_summary_route = os.environ['VpcSummaryRoute']
     fw1_trust_ip = os.environ['fw1TrustIp']
     fw2_trust_ip = os.environ['fw2TrustIp']
@@ -293,13 +310,13 @@ def lambda_handler(event, context):
     fw_untrust_int = 'Fw-Untrust-Int'
 
     trustAZ1_subnet_cidr = find_subnet_by_id(trustAZ1_subnet)['CidrBlock']
+    logger.info('Trust AZ1 subnet is {}'.format(trustAZ1_subnet_cidr))
     trustAZ2_subnet_cidr = find_subnet_by_id(trustAZ2_subnet)['CidrBlock']
+    logger.info('Trust AZ2 subnet is {}'.format(trustAZ2_subnet_cidr))
 
-
-    logger.info("Got Event {}".format(event))
-
-
-    updateTGWFirewall(fw1_trust_ip, fw1_untrust_ip, api_key, trustAZ1_subnet_cidr, fw_untrust_int)
-    updateTGWFirewall(fw2_trust_ip, fw2_untrust_ip, api_key, trustAZ2_subnet_cidr, fw_untrust_int)
-
-
+    updateTGWFirewall(vpc_summary_route,fw1_trust_ip, fw1_untrust_ip, api_key, trustAZ1_subnet_cidr, fw_untrust_int)
+    panCommit(fw1_trust_ip, api_key, message="Updated route table and address object")
+    updateTGWFirewall(vpc_summary_route,fw2_trust_ip, fw2_untrust_ip, api_key, trustAZ2_subnet_cidr, fw_untrust_int)
+    panCommit(fw2_trust_ip, api_key, message="Updated route table and address object")
+    logger.info("Failed to commit Firewall update")
+    logger.info("Updated Firewalls")
