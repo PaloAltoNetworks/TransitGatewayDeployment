@@ -12,10 +12,6 @@ Parameters:
     AllowedValues:
       - yes
       - no
-
-    AllowedValues:
-      - yes
-      - no
   apikey:
     Description: Api key for firewall management
     Type: String 
