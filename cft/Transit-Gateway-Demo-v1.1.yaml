@@ -1302,7 +1302,7 @@ Resources:
   EIP1:
     Type: AWS::EC2::EIP
     Properties:
-      Domain: VPC
+      Domain: vpc
 
     DependsOn:
       - SecurityVPC
@@ -1311,7 +1311,7 @@ Resources:
   EIP2:
     Type: AWS::EC2::EIP
     Properties:
-      Domain: VPC
+      Domain: vpc
 
     DependsOn:
       - SecurityVPC
