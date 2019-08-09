@@ -19,12 +19,13 @@ Parameters:
   WebInstanceType:
     Description: WebServer EC2 instance type
     Type: String
-    Default: t2.micro
+    Default: t3.micro
     AllowedValues:
       - t1.micro
       - t2.micro
       - t2.small
       - t2.medium
+      - t3.micro
       - m1.large
       - m3.xlarge
       - c4.2xlarge
@@ -50,7 +51,7 @@ Parameters:
   NatInstanceType:
     Description: Instance type to use for NAT
     Type: String
-    Default: t2.micro  
+    Default: t3.micro
   SSHLocation:
     Description: Restrict SSH & HTTPS access to the Web Servers (by default can be
       accessed from anywhere)
@@ -1577,7 +1578,7 @@ Resources:
         - UbuntuRegionMap
         - !Ref 'AWS::Region'
         - AMI
-      InstanceType: t2.micro
+      InstanceType: t3.micro
       KeyName: !Ref 'KeyName'
       Monitoring: 'false'
       Tags:
@@ -1629,7 +1630,7 @@ Resources:
         - UbuntuRegionMap
         - !Ref 'AWS::Region'
         - AMI
-      InstanceType: t2.micro
+      InstanceType: t3.micro
       KeyName: !Ref 'KeyName'
       Monitoring: 'false'
       Tags:
