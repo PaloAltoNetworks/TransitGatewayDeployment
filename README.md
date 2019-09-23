@@ -1,4 +1,7 @@
 # AWS Transit Gateway
+
+# Please refer to the Transit Gateway Reference Architecture and Build Guide for updated design models.  [AWS Reference Architecture](https://www.paloaltonetworks.com/resources/reference-architectures/aws)
+
 Creates a Transit Gateway with two server VPCs and a security VPC
 
 Prerequisites
